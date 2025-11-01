@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor-deployment
+  labels:
+    app: executor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+    spec:
+      serviceAccountName: executor-sa
+      containers:
+        - name: executor
+          image: songphuc/executor:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081 # receive here
+              protocol: TCP
+            - name: grpc
+              containerPort: 8082 # receive here
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor-service
+spec:
+  type: NodePort
+  selector:
+    app: executor
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8081
+      targetPort: 8081 # forward to here
+      nodePort: 30010
+    - name: grpc
+      protocol: TCP
+      port: 8082
+      targetPort: 8082 # forward to here
