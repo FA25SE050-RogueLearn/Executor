@@ -45,3 +45,4 @@ spec:
       protocol: TCP
       port: 8082
       targetPort: 8082 # forward to here
+      nodePort: 30011

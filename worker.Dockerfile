@@ -1,56 +1,68 @@
 # Use Alpine for minimal attack surface
-FROM golang:1.25.1-alpine
+FROM golang:1.25.1-alpine AS builder
 
-# Set the working directory
-WORKDIR /app
+WORKDIR /app/temp/golang
 
-# Install required dependencies
+# Install only essential build dependencies
+RUN apk add --no-cache git
+
+# Initialize Go module and pre-build standard library
+RUN go mod init roguelearn.codebattle && \
+    go build -v -o /dev/null std
+
+# ============================================
+# Final stage - minimal runtime image
+# ============================================
+FROM alpine:3.22.2
+
+# Install only runtime dependencies (no build tools)
 RUN apk add --no-cache \
     python3 \
     nodejs \
-    musl-dev \
-    curl \
     bash \
-    git \
-    cmake \
-    make \
-    coreutils \
-    util-linux
+    ca-certificates
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Create the temp directory with appropriate permissions
-RUN mkdir -p /app/temp/golang && chown appuser:appgroup /app/temp/golang && chmod 770 /app/temp/golang
-RUN mkdir -p /app/temp/python && chown appuser:appgroup /app/temp/python && chmod 770 /app/temp/python
-RUN mkdir -p /app/temp/js && chown appuser:appgroup /app/temp/js && chmod 770 /app/temp/js
+# Create temp directories with appropriate permissions
+RUN mkdir -p /app/temp/golang /app/temp/python /app/temp/js && \
+    chown -R appuser:appgroup /app/temp && \
+    chmod -R 770 /app/temp
 
-# Create all the needed files with placeholder content
+# Copy pre-built Go cache from builder
+COPY --from=builder /go /go
+COPY --from=builder /usr/local/go /usr/local/go
+
+# Copy go.mod from builder to the golang temp directory
+COPY --from=builder /app/temp/golang/go.mod /app/temp/golang/go.mod
+
+# Set Go environment for the runtime
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}" \
+    GOPATH="/go" \
+    GOCACHE="/go/cache"
+
+# Ensure Go directories are accessible
+RUN chown -R appuser:appgroup /go && chmod -R 755 /go
+
+# Create placeholder files
 RUN echo "// Temporary Go file" > /app/temp/golang/code.go && \
     echo "# Temporary Python file" > /app/temp/python/code.py && \
-    echo "// Temporary JavaScript file" > /app/temp/js/code.js
+    echo "// Temporary JavaScript file" > /app/temp/js/code.js && \
+    chown -R appuser:appgroup /app/temp && \
+    chmod 660 /app/temp/*/*.go /app/temp/*/*.py /app/temp/*/*.js
 
-# Create compiler output destination
-RUN touch /app/temp/exe && chown appuser:appgroup /app/temp/exe && chmod 770 /app/temp/exe
+# Fix ownership of go.mod
+RUN chown appuser:appgroup /app/temp/golang/go.mod && \
+    chmod 660 /app/temp/golang/go.mod
 
-# Set permissions for all code files to be writable and executable
-RUN chown appuser:appgroup /app/temp/golang/code.go /app/temp/python/code.py /app/temp/js/code.js && \
-    chmod 660 /app/temp/golang/code.go /app/temp/python/code.py /app/temp/js/code.js
-
-# Set permissions for the /app directory structure
-RUN chmod 755 /app
-
-# Remove unnecessary write permissions from root filesystem
-RUN chmod 555 /bin /usr/bin /usr/local/bin
+# Remove write permissions from system directories
+RUN chmod 555 /bin /usr/bin /usr/local/bin 2>/dev/null || true
 
 # Switch to non-root user
 USER appuser
 
-RUN cd /app/temp/golang && go mod init roguelearn.codebattle
-
-# Build Go standard library to optimize performance
-RUN go build -v -o /dev/null std
+WORKDIR /app
 
 # Set default command to keep the container running
-CMD [ "tail", "-f", "/dev/null" ]
-# CMD[ "sleep", "infinity" ]
+CMD ["tail", "-f", "/dev/null"]

@@ -10,9 +10,9 @@ import (
 
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/cmd/api"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/executor"
-	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers"
+	httpHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/http"
+	protoHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/proto"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/k8s"
-	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/service"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/protos"
 	"github.com/lmittmann/tint"
 	"google.golang.org/grpc"
@@ -43,7 +43,7 @@ func main() {
 	engine := executor.NewExecutorEngine(logger, k8sCli, codeBuilder)
 
 	// Initialize HTTP Handler
-	handler := handlers.NewHandler(logger, engine)
+	handler := httpHandlers.NewHandler(logger, engine)
 
 	app := api.NewApplication(cfg, logger, handler)
 
@@ -55,7 +55,7 @@ func main() {
 
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
-	executorServer := service.NewExecutorServer(logger, engine)
+	executorServer := protoHandlers.NewExecutorGRPCServer(engine, logger)
 	protos.RegisterExecutorServiceServer(grpcServer, executorServer)
 
 	app.Logger.Info("starting gRPC executor service", "port", cfg.GrpcPort)

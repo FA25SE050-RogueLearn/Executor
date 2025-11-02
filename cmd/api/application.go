@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers"
+	handlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/http"
 )
 
 type Application struct {
