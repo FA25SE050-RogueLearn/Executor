@@ -47,7 +47,7 @@ func (s *ExecutorServer) Execute(ctx context.Context, req *pb.ExecuteRequest) (*
 		Stdout:          result.Stdout,
 		Stderr:          result.Stderr,
 		Message:         result.Message,
-		ErrorType:       string(result.Error),
+		ErrorType:       result.Error.Error(),
 		ExecutionTimeMs: result.ExecutionTime,
 	}
 
@@ -61,5 +61,5 @@ func pbTestCaseToTestCase(tcs []*pb.TestCase) (result []executor.TestCase) {
 			ExpectedOuput: tc.ExpectedOutput,
 		})
 	}
-	return nil
+	return result
 }

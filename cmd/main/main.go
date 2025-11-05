@@ -12,7 +12,6 @@ import (
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/executor"
 	httpHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/http"
 	protoHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/proto"
-	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/k8s"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/protos"
 	"github.com/lmittmann/tint"
 	"google.golang.org/grpc"
@@ -29,18 +28,24 @@ func main() {
 		GrpcPort: 8082,
 	}
 
-	// Initialize code builder
-	pkgAnalyzer := executor.NewGoPackageAnalyzer()
-	codeBuilder := executor.NewCodeBuilder([]executor.PackageAnalyzer{pkgAnalyzer}, logger)
-
-	// Initialize K8s Client
-	k8sCli, err := k8s.GetK8sClient()
-	if err != nil {
-		log.Fatalf("failed to init k8s client: %v", err)
+	// Initialize worker pool
+	workerPoolOpts := &executor.WorkerPoolOptions{
+		MaxWorkers:       5,    // Number of worker goroutines
+		MemoryLimitBytes: 1024, // 512 MB per container
+		MaxJobCount:      100,  // Maximum number of queued jobs
+		CpuNanoLimit:     5000, // 1 CPU core per container
 	}
 
+	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)
+	if err != nil {
+		log.Fatalf("failed to initialize worker pool: %v", err)
+	}
+
+	// Ensure worker pool shuts down gracefully
+	defer workerPool.Shutdown()
+
 	// Initialize the executor
-	engine := executor.NewExecutorEngine(logger, k8sCli, codeBuilder)
+	engine := executor.NewExecutor(logger, workerPool)
 
 	// Initialize HTTP Handler
 	handler := httpHandlers.NewHandler(logger, engine)
