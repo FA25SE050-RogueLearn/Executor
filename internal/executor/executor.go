@@ -27,12 +27,12 @@ type ExecutionJob struct {
 
 // ExecutionResult represents the result of code execution
 type ExecutionResult struct {
-	Success       bool
-	Stdout        string
-	Stderr        string
-	Message       string
-	Error         CodeErr
-	ExecutionTime string
+	Success       bool    `json:"success"`
+	Stdout        string  `json:"stdout"`
+	Stderr        string  `json:"stderr"`
+	Message       string  `json:"message"`
+	Error         CodeErr `json:"error"`
+	ExecutionTime string  `json:"execution_time"`
 }
 
 // Language represents a programming language configuration

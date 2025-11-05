@@ -29,11 +29,16 @@ func main() {
 	}
 
 	// Initialize worker pool
+	// With 2GB RAM and 2 CPU cores per replica:
+	// - Each container gets 256MB (allows 8 concurrent containers per replica)
+	// - Each container gets 0.5 CPU cores
+	// - MaxWorkers set to 10 (can handle 10 concurrent jobs per replica)
+	// - MaxJobCount set to 50 (reasonable queue size)
 	workerPoolOpts := &executor.WorkerPoolOptions{
-		MaxWorkers:       5,    // Number of worker goroutines
-		MemoryLimitBytes: 1024, // 512 MB per container
-		MaxJobCount:      100,  // Maximum number of queued jobs
-		CpuNanoLimit:     5000, // 1 CPU core per container
+		MaxWorkers:       10,                // Number of worker goroutines
+		MemoryLimitBytes: 256 * 1024 * 1024, // 256 MB per container
+		MaxJobCount:      50,                // Maximum number of queued jobs
+		CpuNanoLimit:     500_000_000,       // 0.5 CPU core per container (500 million nanoseconds)
 	}
 
 	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)

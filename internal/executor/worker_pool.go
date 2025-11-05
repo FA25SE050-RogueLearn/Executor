@@ -216,7 +216,12 @@ func (w *WorkerPool) executeJob(workerID int, job Job) error {
 				"err", compileResult.Err,
 				"stderr", compileResult.Stderr,
 				"stdout", compileResult.Stdout)
-			job.Result <- Result{Error: CompileError, Success: false, Output: compileResult.Stderr}
+
+			errorMsg := fmt.Sprintf("Compilation Failed\n\nCommand:\n%s\n\nError Output:\n%s",
+				compileCmd,
+				compileResult.Stderr)
+
+			job.Result <- Result{Error: CompileError, Success: false, Output: errorMsg}
 			return err
 		}
 		w.logger.Info("Compilation successful", "duration", compileResult.Duration.Milliseconds())
@@ -237,7 +242,13 @@ func (w *WorkerPool) executeJob(workerID int, job Job) error {
 
 		if runResult.Err != nil {
 			w.logger.Warn("Runtime error", "test_case_id", tc.ID, "err", runResult.Err, "stderr", runResult.Stderr)
-			job.Result <- Result{Error: RunTimeError, Success: false, Output: runResult.Stderr}
+
+			errorMsg := fmt.Sprintf("Runtime Error on Test Case #%d\n\nInput:\n%s\n\nError Output:\n%s",
+				tc.ID,
+				tc.Input,
+				runResult.Stderr)
+
+			job.Result <- Result{Error: RunTimeError, Success: false, Output: errorMsg}
 			runCancel()
 			return runResult.Err
 		}
@@ -254,8 +265,13 @@ func (w *WorkerPool) executeJob(workerID int, job Job) error {
 				"expected_output", expectedOutput,
 			)
 
-			// message := fmt.Sprintf("Wrong Answer on test case.\nInput:\n%s\n\nExpected Output:\n%s\n\nYour Output:\n%s", tc.Input, expectedOutput, actualOutput)
-			job.Result <- Result{Success: false, Output: runResult.Stdout, Error: FailTestCase}
+			errorMsg := fmt.Sprintf("Wrong Answer on Test Case #%d\n\nInput:\n%s\n\nExpected Output:\n%s\n\nYour Output:\n%s",
+				tc.ID,
+				tc.Input,
+				expectedOutput,
+				actualOutput)
+
+			job.Result <- Result{Success: false, Output: errorMsg, Error: FailTestCase}
 			runCancel()
 			return FailTestCase
 		}
