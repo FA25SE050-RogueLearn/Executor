@@ -42,12 +42,17 @@ func (s *ExecutorServer) Execute(ctx context.Context, req *pb.ExecuteRequest) (*
 	s.logger.Info("execution finished", "success", result.Success, "message", result.Message)
 
 	// convert result to grpc response
+	errorType := ""
+	if result.Error != nil {
+		errorType = result.Error.Error()
+	}
+
 	resp := &pb.ExecuteResponse{
 		Success:         result.Success,
 		Stdout:          result.Stdout,
 		Stderr:          result.Stderr,
 		Message:         result.Message,
-		ErrorType:       string(result.Error),
+		ErrorType:       errorType,
 		ExecutionTimeMs: result.ExecutionTime,
 	}
 
@@ -61,5 +66,5 @@ func pbTestCaseToTestCase(tcs []*pb.TestCase) (result []executor.TestCase) {
 			ExpectedOuput: tc.ExpectedOutput,
 		})
 	}
-	return nil
+	return result
 }

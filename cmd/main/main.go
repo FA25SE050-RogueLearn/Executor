@@ -12,7 +12,6 @@ import (
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/executor"
 	httpHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/http"
 	protoHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/proto"
-	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/k8s"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/protos"
 	"github.com/lmittmann/tint"
 	"google.golang.org/grpc"
@@ -25,22 +24,34 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := &api.Config{
-		HttpPort: 8081,
-		GrpcPort: 8082,
+		HttpPort: 8082,
+		GrpcPort: 8083,
 	}
 
-	// Initialize code builder
-	pkgAnalyzer := executor.NewGoPackageAnalyzer()
-	codeBuilder := executor.NewCodeBuilder([]executor.PackageAnalyzer{pkgAnalyzer}, logger)
+	// Initialize worker pool
+	// Optimized for i7-8700 (6 cores / 12 threads):
+	// - MaxWorkers: 6 (matches physical cores for optimal cache locality)
+	// - Each container gets 512MB RAM (3GB total for 6 containers)
+	// - Each container gets 2.0 CPU cores (12 total, using hyperthreading)
+	// - MaxJobCount: 50 (reasonable queue size)
+	// This prevents CPU overcommitment and reduces throttling
+	workerPoolOpts := &executor.WorkerPoolOptions{
+		MaxWorkers:       3,
+		MemoryLimitBytes: 256,           // 512MB per container
+		MaxJobCount:      50,            // Maximum number of queued jobs
+		CpuNanoLimit:     1_000_000_000, // 1.0 cores per container
+	}
 
-	// Initialize K8s Client
-	k8sCli, err := k8s.GetK8sClient()
+	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)
 	if err != nil {
-		log.Fatalf("failed to init k8s client: %v", err)
+		log.Fatalf("failed to initialize worker pool: %v", err)
 	}
+
+	// Ensure worker pool shuts down gracefully
+	defer workerPool.Shutdown()
 
 	// Initialize the executor
-	engine := executor.NewExecutorEngine(logger, k8sCli, codeBuilder)
+	engine := executor.NewExecutor(logger, workerPool)
 
 	// Initialize HTTP Handler
 	handler := httpHandlers.NewHandler(logger, engine)
