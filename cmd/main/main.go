@@ -36,10 +36,10 @@ func main() {
 	// - MaxJobCount: 50 (reasonable queue size)
 	// This prevents CPU overcommitment and reduces throttling
 	workerPoolOpts := &executor.WorkerPoolOptions{
-		MaxWorkers:       5,
+		MaxWorkers:       3,
 		MemoryLimitBytes: 256,           // 512MB per container
 		MaxJobCount:      50,            // Maximum number of queued jobs
-		CpuNanoLimit:     1_500_000_000, // 1.0 cores per container
+		CpuNanoLimit:     1_000_000_000, // 1.0 cores per container
 	}
 
 	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)
