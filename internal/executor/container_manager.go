@@ -138,7 +138,7 @@ func (d *DockerContainerManager) StartContainer() error {
 	hostCfg := &container.HostConfig{
 		Resources: container.Resources{
 			Memory:   d.memoryLimitBytes * MB,
-			NanoCPUs: d.cpunanoLimit * 1000_000,
+			NanoCPUs: d.cpunanoLimit,
 		},
 		NetworkMode: "none",
 		RestartPolicy: container.RestartPolicy{

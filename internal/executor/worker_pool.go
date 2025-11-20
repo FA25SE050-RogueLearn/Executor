@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 const (
@@ -36,9 +36,9 @@ type Job struct {
 
 type CodeErr error
 
-var CompileError CodeErr = errors.New("Failed to compile code")
-var RunTimeError CodeErr = errors.New("Failed to run code")
-var FailTestCase CodeErr = errors.New("Test case failed")
+var CompileError CodeErr = errors.New("COMPILE_ERROR")
+var RunTimeError CodeErr = errors.New("RUNTIME_ERROR")
+var FailTestCase CodeErr = errors.New("WRONG_ANSWER")
 
 type Result struct {
 	Output        string
@@ -137,24 +137,95 @@ func (w *WorkerPool) ExecuteJob(lang Language, code string, tcs []InternalTestCa
 	}
 }
 
-// executeInContainer is a generic function to run a specific shell command in a container
+// executeInContainer is a generic function to run a specific shell command in a container using Docker SDK
 func (w *WorkerPool) executeInContainer(ctx context.Context, containerID, command string, stdin io.Reader) ExecuteCommandResult {
-	dockerArgs := []string{"exec", "-i", containerID, "sh", "-c", command}
-	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdin = stdin
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	start := time.Now()
-	err := cmd.Run()
+
+	// Create exec configuration
+	execConfig := container.ExecOptions{
+		AttachStdin:  stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"sh", "-c", command},
+	}
+
+	// Create the exec instance
+	execIDResp, err := w.cm.cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return ExecuteCommandResult{
+			Stdout:   "",
+			Stderr:   err.Error(),
+			Err:      err,
+			Duration: time.Since(start),
+		}
+	}
+
+	// Attach to the exec instance
+	attachResp, err := w.cm.cli.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return ExecuteCommandResult{
+			Stdout:   "",
+			Stderr:   err.Error(),
+			Err:      err,
+			Duration: time.Since(start),
+		}
+	}
+	defer attachResp.Close()
+
+	// Handle stdin if provided
+	if stdin != nil {
+		go func() {
+			defer attachResp.CloseWrite()
+			io.Copy(attachResp.Conn, stdin)
+		}()
+	}
+
+	// Read stdout and stderr
+	var stdout, stderr bytes.Buffer
+	outputDone := make(chan error, 1)
+	go func() {
+		// Docker multiplexes stdout and stderr in the response
+		// Use stdcopy to properly demultiplex the streams
+		_, err := stdcopy.StdCopy(&stdout, &stderr, attachResp.Reader)
+		outputDone <- err
+	}()
+
+	// Wait for output to complete or context to cancel
+	select {
+	case <-ctx.Done():
+		return ExecuteCommandResult{
+			Stdout:   stdout.String(),
+			Stderr:   "Execution timeout",
+			Err:      ctx.Err(),
+			Duration: time.Since(start),
+		}
+	case <-outputDone:
+		// Continue to check exit code
+	}
+
+	// Check the exit code
+	inspectResp, err := w.cm.cli.ContainerExecInspect(ctx, execIDResp.ID)
+	if err != nil {
+		return ExecuteCommandResult{
+			Stdout:   stdout.String(),
+			Stderr:   err.Error(),
+			Err:      err,
+			Duration: time.Since(start),
+		}
+	}
+
 	duration := time.Since(start)
+
+	// If exit code is non-zero, return an error
+	var execErr error
+	if inspectResp.ExitCode != 0 {
+		execErr = fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
+	}
 
 	return ExecuteCommandResult{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
-		Err:      err,
+		Err:      execErr,
 		Duration: duration,
 	}
 }
@@ -203,12 +274,42 @@ func (w *WorkerPool) executeJob(workerID int, job Job) error {
 		"container_id", containerID,
 		"code", job.Code)
 
-	// Step 2: Run the code
-	// If compiled lang -> compiled first.
+	// Step 2: Compile once (if needed)
+	var finalRunCmd string
+	var compiledBinaryPath string
+
 	if job.Language.CompileCmd != "" { // case Compiled Lang
-		// The compile and run commands should already have the correct paths
+		// Generate unique binary path to avoid conflicts between concurrent jobs
+		compiledBinaryPath = fmt.Sprintf("/tmp/prog_%s_%d", containerID[:12], time.Now().UnixNano())
+
+		// Replace placeholders in compile command and add output path
 		compileCmd := strings.ReplaceAll(job.Language.CompileCmd, tempFileDirHolder, job.Language.TempFileDir.String)
-		w.logger.Info("Compiling code...", "container_id", containerID, "command", compileCmd)
+		compileCmd = strings.ReplaceAll(compileCmd, tempFileNameHolder, job.Language.TempFileName.String)
+
+		// If the compile command has an output flag (-o), replace it with our unique path
+		// Otherwise append it
+		if strings.Contains(compileCmd, " -o ") {
+			// Replace existing output path
+			parts := strings.Split(compileCmd, " -o ")
+			if len(parts) >= 2 {
+				// Find where the old output path ends (next space or end of string)
+				oldPathParts := strings.Fields(parts[1])
+				if len(oldPathParts) > 0 {
+					// Replace the old path with new one, keep rest of command
+					restOfCmd := strings.Join(oldPathParts[1:], " ")
+					if restOfCmd != "" {
+						compileCmd = parts[0] + " -o " + compiledBinaryPath + " " + restOfCmd
+					} else {
+						compileCmd = parts[0] + " -o " + compiledBinaryPath
+					}
+				}
+			}
+		} else {
+			// No -o flag exists, append it
+			compileCmd = compileCmd + " -o " + compiledBinaryPath
+		}
+
+		w.logger.Info("Compiling code...", "container_id", containerID, "command", compileCmd, "binary_path", compiledBinaryPath)
 
 		compileResult := w.executeInContainer(ctx, containerID, compileCmd, nil)
 		if compileResult.Err != nil {
@@ -225,12 +326,25 @@ func (w *WorkerPool) executeJob(workerID int, job Job) error {
 			return err
 		}
 		w.logger.Info("Compilation successful", "duration", compileResult.Duration.Milliseconds())
+
+		// Use the compiled binary for all test cases
+		finalRunCmd = compiledBinaryPath
+	} else {
+		// Interpreted language - use run command as-is
+		finalRunCmd = strings.ReplaceAll(job.Language.RunCmd, tempFileDirHolder, job.Language.TempFileDir.String)
+		finalRunCmd = strings.ReplaceAll(finalRunCmd, tempFileNameHolder, job.Language.TempFileName.String)
 	}
 
-	// Step 4: Run all test cases
-	finalRunCmd := strings.ReplaceAll(job.Language.RunCmd, tempFileDirHolder, job.Language.TempFileDir.String)
-	finalRunCmd = strings.ReplaceAll(finalRunCmd, tempFileNameHolder, job.Language.TempFileName.String)
+	// Cleanup compiled binary after all test cases
+	if compiledBinaryPath != "" {
+		defer func() {
+			cleanupCmd := fmt.Sprintf("rm -f %s", compiledBinaryPath)
+			w.executeInContainer(context.Background(), containerID, cleanupCmd, nil)
+			w.logger.Info("Cleaned up compiled binary", "binary_path", compiledBinaryPath)
+		}()
+	}
 
+	// Step 3: Run all test cases using the same compiled binary
 	w.logger.Info("Preparing to run test cases", "command", finalRunCmd, "count", len(job.TestCases))
 
 	totalExecutionTime := int64(0)

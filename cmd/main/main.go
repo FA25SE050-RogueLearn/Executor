@@ -24,21 +24,22 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := &api.Config{
-		HttpPort: 8081,
-		GrpcPort: 8082,
+		HttpPort: 8082,
+		GrpcPort: 8083,
 	}
 
 	// Initialize worker pool
-	// With 2GB RAM and 2 CPU cores per replica:
-	// - Each container gets 256MB (allows 8 concurrent containers per replica)
-	// - Each container gets 0.5 CPU cores
-	// - MaxWorkers set to 10 (can handle 10 concurrent jobs per replica)
-	// - MaxJobCount set to 50 (reasonable queue size)
+	// Optimized for i7-8700 (6 cores / 12 threads):
+	// - MaxWorkers: 6 (matches physical cores for optimal cache locality)
+	// - Each container gets 512MB RAM (3GB total for 6 containers)
+	// - Each container gets 2.0 CPU cores (12 total, using hyperthreading)
+	// - MaxJobCount: 50 (reasonable queue size)
+	// This prevents CPU overcommitment and reduces throttling
 	workerPoolOpts := &executor.WorkerPoolOptions{
-		MaxWorkers:       10,                // Number of worker goroutines
-		MemoryLimitBytes: 256 * 1024 * 1024, // 256 MB per container
-		MaxJobCount:      50,                // Maximum number of queued jobs
-		CpuNanoLimit:     500_000_000,       // 0.5 CPU core per container (500 million nanoseconds)
+		MaxWorkers:       5,
+		MemoryLimitBytes: 256,           // 512MB per container
+		MaxJobCount:      50,            // Maximum number of queued jobs
+		CpuNanoLimit:     1_500_000_000, // 1.0 cores per container
 	}
 
 	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)

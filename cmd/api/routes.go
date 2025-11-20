@@ -12,7 +12,7 @@ func (app *Application) routes() http.Handler {
 
 	mux.Use(cors.AllowAll().Handler)
 
-	mux.Route("/healthcheck", func(r chi.Router) {
+	mux.Route("/health", func(r chi.Router) {
 		r.Get("/", app.Handlers.HealthCheckHandler)
 	})
 
