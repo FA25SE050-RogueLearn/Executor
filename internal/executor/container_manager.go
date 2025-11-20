@@ -38,13 +38,13 @@ type ContainerInfo struct {
 }
 
 type DockerContainerManager struct {
-	mu               sync.Mutex
-	logger           *slog.Logger // this logger both writes to terminal and to log file
-	cli              *client.Client
-	containers       map[string]*ContainerInfo
-	maxWorkers       int
-	memoryLimitBytes int64
-	cpunanoLimit     int64
+	mu            sync.Mutex
+	logger        *slog.Logger // this logger both writes to terminal and to log file
+	cli           *client.Client
+	containers    map[string]*ContainerInfo
+	maxWorkers    int
+	memoryLimitMB int64
+	cpunanoLimit  int64
 }
 
 func NewDockerClient() (*client.Client, error) {
@@ -55,7 +55,7 @@ func NewDockerClient() (*client.Client, error) {
 	return cli, nil
 }
 
-func NewDockerContainerManager(maxWorkers int, memoryLimitBytes, cpunanoLimit int64) (*DockerContainerManager, error) {
+func NewDockerContainerManager(maxWorkers int, memoryLimitMB int64, cpunanoLimit int64) (*DockerContainerManager, error) {
 	dockerClient, err := NewDockerClient()
 	if err != nil {
 		return nil, err
@@ -76,12 +76,12 @@ func NewDockerContainerManager(maxWorkers int, memoryLimitBytes, cpunanoLimit in
 	slogHandler := tint.NewHandler(multiWriter, &tint.Options{Level: slog.LevelDebug, AddSource: true})
 	logger := slog.New(slogHandler)
 	return &DockerContainerManager{
-		logger:           logger,
-		cli:              dockerClient,
-		containers:       make(map[string]*ContainerInfo),
-		maxWorkers:       maxWorkers,
-		cpunanoLimit:     cpunanoLimit,
-		memoryLimitBytes: memoryLimitBytes,
+		logger:        logger,
+		cli:           dockerClient,
+		containers:    make(map[string]*ContainerInfo),
+		maxWorkers:    maxWorkers,
+		cpunanoLimit:  cpunanoLimit,
+		memoryLimitMB: memoryLimitMB,
 	}, nil
 }
 
@@ -137,7 +137,7 @@ func (d *DockerContainerManager) StartContainer() error {
 
 	hostCfg := &container.HostConfig{
 		Resources: container.Resources{
-			Memory:   d.memoryLimitBytes * MB,
+			Memory:   d.memoryLimitMB * MB,
 			NanoCPUs: d.cpunanoLimit,
 		},
 		NetworkMode: "none",

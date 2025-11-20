@@ -63,14 +63,14 @@ type WorkerPool struct {
 }
 
 type WorkerPoolOptions struct {
-	MaxWorkers       int
-	MemoryLimitBytes int64
-	MaxJobCount      int
-	CpuNanoLimit     int64
+	MaxWorkers    int
+	MemoryLimitMB int64
+	MaxJobCount   int
+	CpuNanoLimit  int64
 }
 
 func NewWorkerPool(logger *slog.Logger, opts *WorkerPoolOptions) (*WorkerPool, error) {
-	cm, err := NewDockerContainerManager(opts.MaxWorkers, opts.MemoryLimitBytes, opts.CpuNanoLimit)
+	cm, err := NewDockerContainerManager(opts.MaxWorkers, opts.MemoryLimitMB, opts.CpuNanoLimit)
 	if err != nil {
 		return nil, err
 	}

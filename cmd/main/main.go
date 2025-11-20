@@ -12,6 +12,7 @@ import (
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/executor"
 	httpHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/http"
 	protoHandlers "github.com/FA25SE050-RogueLearn/RogueLearn.Executor/internal/handlers/proto"
+	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/pkg/env"
 	"github.com/FA25SE050-RogueLearn/RogueLearn.Executor/protos"
 	"github.com/lmittmann/tint"
 	"google.golang.org/grpc"
@@ -23,23 +24,25 @@ func main() {
 	logger := slog.New(slogHandler)
 	slog.SetDefault(logger)
 
+	httpPort := env.GetInt("EXECUTOR_HTTP_PORT", 8082)
+	grpcPort := env.GetInt("EXECUTOR_GRPC_PORT", 8083)
+
 	cfg := &api.Config{
-		HttpPort: 8082,
-		GrpcPort: 8083,
+		HttpPort: httpPort,
+		GrpcPort: grpcPort,
 	}
 
+	maxWorkers := env.GetInt("EXECUTOR_MAX_WORKERS", 3)
+	memoryLimitMB := env.GetInt("EXECUTOR_MEMORY_LIMIT_MB", 256)
+	maxJobs := env.GetInt("EXECUTOR_MAX_JOBS", 50)
+	cpuNanoLimit := env.GetInt("EXECUTOR_CPU_NANO_LIMIT", 1_000_000_000)
+
 	// Initialize worker pool
-	// Optimized for i7-8700 (6 cores / 12 threads):
-	// - MaxWorkers: 6 (matches physical cores for optimal cache locality)
-	// - Each container gets 512MB RAM (3GB total for 6 containers)
-	// - Each container gets 2.0 CPU cores (12 total, using hyperthreading)
-	// - MaxJobCount: 50 (reasonable queue size)
-	// This prevents CPU overcommitment and reduces throttling
 	workerPoolOpts := &executor.WorkerPoolOptions{
-		MaxWorkers:       3,
-		MemoryLimitBytes: 256,           // 512MB per container
-		MaxJobCount:      50,            // Maximum number of queued jobs
-		CpuNanoLimit:     1_000_000_000, // 1.0 cores per container
+		MaxWorkers:    maxWorkers,
+		MemoryLimitMB: int64(memoryLimitMB),
+		MaxJobCount:   maxJobs,
+		CpuNanoLimit:  int64(cpuNanoLimit),
 	}
 
 	workerPool, err := executor.NewWorkerPool(logger, workerPoolOpts)
